@@ -80,8 +80,18 @@ BDO_URL=http://127.0.0.1:3003/ PUBLIC_PREFIX=/savage npm start
 
 ## Tests
 
+These are **end-to-end** tests, not unit tests. Each one publishes a record to
+a real BDO and then reads it back through a real savage, so it needs a base URL
+that serves both under one host — `<base>/bdo` and `<base>/savage`. It defaults
+to `http://localhost:8080`, which was the old local gateway; pass the base URL
+as an argument to point somewhere else.
+
 ```bash
-npm run test:sanitize   # the removeJavaScript pass
-npm run test:vcard      # vCard route behaviour
-npm run smoke           # end-to-end against a running BDO
+npm run test:sanitize -- https://dev.8as.world   # publishes a malicious SVG, asserts it comes back stripped
+npm run test:vcard    -- https://dev.8as.world   # vCard route behaviour
+npm run smoke         -- https://dev.8as.world   # full publish → render round trip
 ```
+
+`test:sanitize` is the one worth keeping green: it publishes an SVG carrying
+`<script>`, an `onload`, an `onclick`, and a `javascript:` href, then asserts
+none of them survive into the served page.

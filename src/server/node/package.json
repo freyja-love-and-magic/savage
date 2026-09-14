@@ -18,5 +18,9 @@
   "dependencies": {
     "express": "^4.19.2",
     "teleportation-js": "latest"
+  },
+  "devDependencies": {
+    "_comment": "scripts/*.mjs sign their own test requests. sessionless-node currently resolves as a transitive dep of teleportation-js; declared here so the tests don't break if that ever changes.",
+    "sessionless-node": "^0.11.0"
   }
 }
