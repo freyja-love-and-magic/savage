@@ -1,0 +1,22 @@
+{
+  "name": "savage",
+  "version": "0.0.1",
+  "description": "Wraps a BDO's svg property in a minimal HTML page with it set as the og:image, for shareable link previews",
+  "main": "savage.js",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/freyja-love-and-magic/savage.git"
+  },
+  "scripts": {
+    "start": "node savage.js",
+    "test:sanitize": "node scripts/test-sanitize.mjs",
+    "test:vcard": "node scripts/test-vcard.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "teleportation-js": "latest"
+  }
+}
