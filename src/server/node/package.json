@@ -19,8 +19,8 @@
     "express": "^4.19.2",
     "teleportation-js": "latest"
   },
+  "//": "sessionless-node is a devDependency because scripts/*.mjs sign their own test requests. It currently also resolves as a transitive dep of teleportation-js; declaring it keeps the tests working if that ever changes. (npm reads every key inside a dependency block as a package name, so this note has to live at the top level — '//' is npm's own convention for it.)",
   "devDependencies": {
-    "_comment": "scripts/*.mjs sign their own test requests. sessionless-node currently resolves as a transitive dep of teleportation-js; declared here so the tests don't break if that ever changes.",
     "sessionless-node": "^0.11.0"
   }
 }
