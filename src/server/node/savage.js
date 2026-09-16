@@ -174,15 +174,19 @@ app.get('/user/:uuid/bdo', async (req, res) => {
   }
 });
 
-// Only bind a port when this file is run directly (`node savage.js`), so the
-// same `app` can still be imported by a test harness or an embedding host
-// without starting a listener.
+// Listen unconditionally, the same way bdo.js and addie.js do.
+//
+// This used to be guarded by `import.meta.url === file://${process.argv[1]}`
+// so the netlify-gateway bundle could import the app and bind it itself. That
+// bundle is retired, and the guard is actively harmful under pm2: pm2's fork
+// mode doesn't exec the script directly, it loads it through
+// lib/ProcessContainerFork.js, so process.argv[1] is pm2's wrapper and the
+// comparison is always false. savage would then load, never listen, and exit
+// 0 with nothing printed — a silent crash loop. Don't reintroduce the guard.
 //
 // 3012, not savage's historical 3009: on the shared allyabase box 3009 is
 // minnie's. PORT overrides it, and deployment should set it explicitly.
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const PORT = process.env.PORT || 3012;
-  app.listen(PORT, () => console.log(`savage listening on ${PORT}`));
-}
+const PORT = process.env.PORT || 3012;
+app.listen(PORT, () => console.log(`savage listening on ${PORT}`));
 
 export default app;
