@@ -63,7 +63,46 @@ const absoluteUrl = (req, path) => {
   return `${proto}://${host}${prefix}${path}`;
 };
 
-const wrapHTML = (svg, imageUrl, title, vcardUrl) => `<!doctype html>
+// The page chrome around a card used to be hardcoded to one app's colours
+// (#111 ground, #10b981 button — BizBuz's palette before it was rethemed).
+// savage serves cards from every app that publishes an svg, so baking in any
+// single app's palette is wrong regardless of whether the values are current.
+//
+// A publisher can now send `palette` on the BDO alongside `svg` and `vcard`,
+// and the page picks it up. These defaults reproduce the old appearance
+// exactly, so records published before this change render unchanged.
+const DEFAULT_PALETTE = {
+  background: '#111',
+  accent: '#10b981',
+  accentText: '#111',
+};
+
+// Palette values are untrusted — they arrive on a BDO written by whoever held
+// the signature, exactly like the svg does, and they get interpolated into a
+// style attribute. A value such as `#111;background-image:url(...)` or one
+// carrying a quote would break out of the attribute and inject arbitrary CSS
+// into a page savage otherwise guarantees is script-free.
+//
+// So: only literal hex colours, nothing else. Anything that doesn't match
+// falls back rather than being escaped and passed through, because there is
+// no legitimate reason for a colour to be anything but a hex value here.
+const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+
+const safeColor = (value, fallback) =>
+  typeof value === 'string' && HEX_COLOR.test(value.trim()) ? value.trim() : fallback;
+
+const resolvePalette = (palette) => {
+  const p = (palette && typeof palette === 'object') ? palette : {};
+  return {
+    background: safeColor(p.background, DEFAULT_PALETTE.background),
+    accent: safeColor(p.accent, DEFAULT_PALETTE.accent),
+    accentText: safeColor(p.accentText, DEFAULT_PALETTE.accentText),
+  };
+};
+
+const wrapHTML = (svg, imageUrl, title, vcardUrl, palette) => {
+  const { background, accent, accentText } = resolvePalette(palette);
+  return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -74,11 +113,12 @@ const wrapHTML = (svg, imageUrl, title, vcardUrl) => `<!doctype html>
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${imageUrl}">
 </head>
-<body style="margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; background:#111; gap:20px;">
+<body style="margin:0; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; background:${background}; gap:20px;">
 ${svg}
-${vcardUrl ? `<a href="${vcardUrl}" style="font-family:sans-serif; font-size:15px; font-weight:bold; padding:12px 28px; background:#10b981; color:#111; border-radius:8px; text-decoration:none;">Save Contact</a>` : ''}
+${vcardUrl ? `<a href="${vcardUrl}" style="font-family:sans-serif; font-size:15px; font-weight:bold; padding:12px 28px; background:${accent}; color:${accentText}; border-radius:8px; text-decoration:none;">Save Contact</a>` : ''}
 </body>
 </html>`;
+};
 
 // JSDOM parses its input as a full document even when it's just an <svg>
 // fragment, wrapping it in <html><head></head><body>...</body></html> - so
@@ -167,7 +207,9 @@ app.get('/user/:uuid/bdo', async (req, res) => {
     const title = result.bdo.title || result.bdo.name || 'savage';
 
     res.set('Content-Type', 'text/html');
-    res.send(wrapHTML(result.bdo.svg, imageUrl, title, vcardUrl));
+    // palette is optional and validated in wrapHTML; a record without one
+    // renders exactly as it did before palettes existed.
+    res.send(wrapHTML(result.bdo.svg, imageUrl, title, vcardUrl, result.bdo.palette));
   } catch (err) {
     console.warn('savage error:', err);
     res.status(500).send('Internal error');
