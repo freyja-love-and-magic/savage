@@ -120,14 +120,60 @@ ${vcardUrl ? `<a href="${vcardUrl}" style="font-family:sans-serif; font-size:15p
 </html>`;
 };
 
+// An embedded raster image, as every card with a photo carries.
+//
+// removeJavaScript deletes any element whose href/src/data starts with
+// `data:` — the whole element, not just the attribute — because a data URL
+// can smuggle script. That is right for data:text/html and
+// data:image/svg+xml (an SVG document can carry <script>), but it also ate
+// the avatar out of every published card: the apps have no image host, so a
+// photo is base64'd straight into the card's <image href>.
+//
+// So safe raster URIs are carried across the sanitizer under a placeholder
+// and restored afterwards. The library's protection is untouched: the only
+// data: URI in the output is one that matched this pattern, and it is put
+// back only on an <image> element. Raster mime types only, never svg+xml.
+const SAFE_IMAGE_DATA_URI = /^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i;
+const PLACEHOLDER_PREFIX = 'savage-safe-image:';
+
 // JSDOM parses its input as a full document even when it's just an <svg>
 // fragment, wrapping it in <html><head></head><body>...</body></html> - so
 // after stripping, pull the sanitized <svg> element back out rather than
 // returning the whole wrapper document.
 const sanitizeSvg = (rawSvg) => {
-  const dom = removeJavaScript(rawSvg);
+  // Stash before sanitizing, since removeJavaScript removes the element and
+  // nothing can be recovered from the DOM afterwards.
+  const stashed = [];
+  const withPlaceholders = rawSvg.replace(
+    /(\s(?:xlink:href|href)\s*=\s*")(data:[^"]*)(")/gi,
+    (whole, before, value, after) => {
+      if (!SAFE_IMAGE_DATA_URI.test(value.trim())) return whole;
+      stashed.push(value);
+      return `${before}${PLACEHOLDER_PREFIX}${stashed.length - 1}${after}`;
+    }
+  );
+
+  const dom = removeJavaScript(withPlaceholders);
   const svgEl = dom.window.document.querySelector('svg');
-  return svgEl ? svgEl.outerHTML : null;
+  if (!svgEl) return null;
+
+  for (const attr of ['href', 'xlink:href']) {
+    for (const el of svgEl.querySelectorAll(`[${attr.replace(':', '\\:')}]`)) {
+      const value = el.getAttribute(attr) || '';
+      if (!value.startsWith(PLACEHOLDER_PREFIX)) continue;
+
+      const original = stashed[Number(value.slice(PLACEHOLDER_PREFIX.length))];
+      // Only an <image> gets a data URI back. A crafted card could have put
+      // the placeholder on something else; that just loses the attribute.
+      if (original && el.tagName.toLowerCase() === 'image') {
+        el.setAttribute(attr, original);
+      } else {
+        el.removeAttribute(attr);
+      }
+    }
+  }
+
+  return svgEl.outerHTML;
 };
 
 // Forwards whatever it's given straight through to BDO's own auth (the
