@@ -49,7 +49,38 @@ whole document.
 **Consequence for callers**: a published SVG cannot contain behaviour.
 BizBuz's referral card wants to auto-redirect to the App Store and can't — it
 uses a plain `<a href>` button instead. Any app publishing here should assume
-scripts, `javascript:`/`data:` URLs, and `on*` attributes will be stripped.
+scripts, `javascript:` URLs, and `on*` attributes will be stripped.
+
+### Embedded photos: the one exception, and why it exists
+
+`removeJavaScript` strips every `data:` URI, since `data:` is a script vector.
+That silently deleted the **photo** out of every card BizBuz and LinkityLink
+published: both base64 a resized JPEG into the SVG (nothing in that stack
+uploads files), so cards looked right in the app and rendered on the web with
+an empty avatar. Nothing errored — the attribute was simply gone.
+
+`sanitizeSvg` now:
+
+1. Stashes anything matching `SAFE_IMAGE_DATA_URI`
+   (`data:image/(png|jpe?g|gif|webp);base64,…`) behind a
+   `savage-safe-image:` placeholder prefix.
+2. Runs `removeJavaScript` as before, on markup with no `data:` left in it.
+3. Restores the stashed values **onto `<image>` elements only**.
+
+Three deliberate narrownesses:
+
+- **Raster only.** `image/svg+xml` is not in the allowlist: an SVG can carry
+  script, so a data-URI SVG would be a way to smuggle behaviour back in past
+  the strip.
+- **`<image>` only.** A restored URI can't land on an `href`, a
+  `style`, or anywhere it would be fetched or executed as anything but a
+  bitmap.
+- **The placeholder is a prefix on a value**, not a comment or a node, so it
+  survives JSDOM's parse-and-serialize round trip intact.
+
+If a published card loses its photo again, this is the pass to look at
+first — and if you widen the allowlist, widen it knowing all three
+constraints are load-bearing.
 
 ### Absolute URLs and reverse proxies
 
