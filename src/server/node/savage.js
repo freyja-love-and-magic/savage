@@ -86,6 +86,21 @@ const DEFAULT_PALETTE = {
 // So: only literal hex colours, nothing else. Anything that doesn't match
 // falls back rather than being escaped and passed through, because there is
 // no legitimate reason for a colour to be anything but a hex value here.
+// Text pulled off a BDO record and interpolated into this page. The svg goes
+// through sanitizeSvg, but until 2026-10 the title did not go through
+// anything: `<title>${title}</title>` took the record's title field raw, so a
+// crafted record carrying `</title><script>...` executed on a page whose
+// entire promise is that it is script-free. The og tags below land in
+// attributes, which are easier still to break out of, so everything
+// interpolated as text is escaped from here on.
+const escapeHtml = (value) =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 
 const safeColor = (value, fallback) =>
@@ -100,15 +115,23 @@ const resolvePalette = (palette) => {
   };
 };
 
-const wrapHTML = (svg, imageUrl, title, vcardUrl, palette) => {
+const wrapHTML = (svg, imageUrl, title, vcardUrl, palette, description) => {
   const { background, accent, accentText } = resolvePalette(palette);
+  const safeTitle = escapeHtml(title);
+  const safeDescription = escapeHtml(description);
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${title}</title>
-<meta property="og:type" content="website">
+<title>${safeTitle}</title>
+<meta property="og:type" content="profile">
+<meta property="og:site_name" content="HomeFront">
+<meta property="og:title" content="${safeTitle}">
+<meta name="twitter:title" content="${safeTitle}">
+${safeDescription ? `<meta name="description" content="${safeDescription}">
+<meta property="og:description" content="${safeDescription}">
+<meta name="twitter:description" content="${safeDescription}">` : ''}
 <meta property="og:image" content="${imageUrl}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${imageUrl}">
@@ -250,12 +273,37 @@ app.get('/user/:uuid/bdo', async (req, res) => {
     const vcardUrl = result.bdo.vcard
       ? absoluteUrl(req, `/user/${req.params.uuid}/bdo/vcard${qs ? `?${qs}` : ''}`)
       : null;
-    const title = result.bdo.title || result.bdo.name || 'savage';
+    // `title` on a BizBuz record is the person's JOB title ("Software
+    // Enchantress"), not a page title, so name wins. This used to read
+    // `title || name`, which titled every BizBuz card's page and link
+    // preview with the job rather than the person.
+    const title = result.bdo.name || result.bdo.title || 'savage';
+
+    // One line of context for the link preview, assembled from whatever the
+    // publishing app happened to put on the record. BizBuz cards carry a job
+    // title and company; Linkitylink cards carry a bio and a list of links;
+    // the referral cards carry neither and correctly get no description, in
+    // which case wrapHTML omits the tags rather than emitting empty ones.
+    const text = (v) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '');
+    const role = [
+      // Skip the job title if it is already serving as the page title, which
+      // happens on a record with no name.
+      result.bdo.name ? text(result.bdo.title) : '',
+      text(result.bdo.company),
+    ].filter(Boolean).join(' at ');
+    const linkCount = Array.isArray(result.bdo.links) ? result.bdo.links.length : 0;
+    let description = [role, text(result.bdo.bio)].filter(Boolean).join(' \u00b7 ');
+    if (!description && linkCount) {
+      description = `${linkCount} link${linkCount === 1 ? '' : 's'}`;
+    }
+    if (description.length > 160) {
+      description = `${description.slice(0, 159)}\u2026`;
+    }
 
     res.set('Content-Type', 'text/html');
     // palette is optional and validated in wrapHTML; a record without one
     // renders exactly as it did before palettes existed.
-    res.send(wrapHTML(result.bdo.svg, imageUrl, title, vcardUrl, result.bdo.palette));
+    res.send(wrapHTML(result.bdo.svg, imageUrl, title, vcardUrl, result.bdo.palette, description));
   } catch (err) {
     console.warn('savage error:', err);
     res.status(500).send('Internal error');
